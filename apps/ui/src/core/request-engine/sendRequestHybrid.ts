@@ -15,7 +15,23 @@ import { preSendProcessHook, replaceProcessVariablesInText, saveRuntimeVariables
 import { get } from "http";
 import { getRuntimeVariablesMap } from "./getRequestFromJson";
 import { expandLinkedBlocksInDoc } from "../editors/voiden/utils/expandLinkedBlocks";
-import { parseJsonSafe, stringifyJsonSafe } from "./parseJsonSafe";
+import { parse as losslessParse, stringify as losslessStringify, LosslessNumber } from "lossless-json";
+
+/**
+ * Custom number parser for lossless-json.
+ * Preserves numbers within safe integer range as native Numbers.
+ * Numbers exceeding Number.MAX_SAFE_INTEGER are kept as LosslessNumber
+ * to avoid IEEE 754 floating-point precision loss.
+ *
+ * @see https://github.com/VoidenHQ/voiden/issues/395
+ */
+function parseNumberSafe(value: string): number | LosslessNumber {
+  const num = Number(value);
+  if (Number.isInteger(num) && !Number.isSafeInteger(num)) {
+    return new LosslessNumber(value);
+  }
+  return num;
+}
 
 
 /**
@@ -415,7 +431,7 @@ export async function sendRequestHybrid(
 
       if (contentType.includes("json")) {
         try {
-          body = stringifyJsonSafe(parseJsonSafe(buffer.toString()), 2);
+          body = losslessStringify(losslessParse(buffer.toString(), null, parseNumberSafe), undefined, 2) ?? buffer.toString();
         } catch {
           body = buffer.toString();
         }
@@ -427,7 +443,7 @@ export async function sendRequestHybrid(
     }
 
     // Calculate size
-    const bodyString = typeof body === "string" ? body : stringifyJsonSafe(body);
+    const bodyString = typeof body === "string" ? body : (losslessStringify(body) ?? "");
     const bytesContent = new TextEncoder().encode(bodyString).length;
 
     const endTime = performance.now();
